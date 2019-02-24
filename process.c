@@ -1,15 +1,8 @@
-#include <stdlib.h>
-#include <stdio.h>
 #include <assert.h>
-#include "utils.h"
+#include <stdio.h>
+#include <stdlib.h>
 
-typedef enum {
-  READY,
-  PAUSED,
-  BLOCKED,
-  FINISHED,
-  KILLED
-} STATE;
+typedef enum { READY, PAUSED, BLOCKED, FINISHED, KILLED } STATE;
 
 typedef struct {
   FILE *fp;
@@ -18,8 +11,13 @@ typedef struct {
   int position;
   int memory;
   int time_left;
+  int start_time;
+  int end_time;
+  int unblock_time;
   STATE state;
 } process;
+
+int random_between(int from, int to) { return (rand() % (to - from + 1)) + from; }
 
 process *open_process(int n) {
   process *p = malloc(sizeof(process));
@@ -36,20 +34,21 @@ process *open_process(int n) {
   p->position = 0;
   p->memory = 0;
   p->time_left = 0;
-  p->state = 0; // 1 = blocked, 2 = finished
+  p->state = READY;
   return p;
 }
 
 void generate_process(int n) {
-
   // open file number n
   process *p = open_process(n);
 
   // TODO: metadata for process
-  fprintf(p->fp, "%9i\n", random_between(0, 3));
-  fprintf(p->fp, "%9i\n", 0);
-  fprintf(p->fp, "%9i\n", random_between(10, 200));
-  fprintf(p->fp, "%9i\n", random_between(400, 40000));
+  fprintf(p->fp, "%9i\n", random_between(0, 3));              // priority
+  fprintf(p->fp, "%9i\n", 0);                                 // position
+  fprintf(p->fp, "%9i\n", random_between(10, 200));           // memory
+  fprintf(p->fp, "%9i\n", random_between(400000, 40000000));  // execution time
+  fprintf(p->fp, "%9i\n", 0);                                 // start time
+  fprintf(p->fp, "%9i\n", 0);                                 // end time
 
   // actual instructions
   for (int i = 0; i < random_between(1000, 100000); i++) {
@@ -66,6 +65,8 @@ void close_process(process *p) {
   fprintf(p->fp, "%9i", p->memory);
   fseek(p->fp, 30, SEEK_SET);
   fprintf(p->fp, "%9i", p->time_left);
+  fseek(p->fp, 40, SEEK_SET);
+  fprintf(p->fp, "%9i", p->start_time);
 
   fclose(p->fp);
   free(p);
@@ -73,7 +74,7 @@ void close_process(process *p) {
 
 void read_process_metadata(process *p) {
   int priority, position, time_left;
-  
+
   fseek(p->fp, 0, SEEK_SET);
   fscanf(p->fp, "%i", &priority);
 
@@ -90,15 +91,15 @@ void read_process_metadata(process *p) {
 
 // process no. n to be ran for quantum time
 int execute_process(process *p, int quantum) {
-
   // read metadata
   read_process_metadata(p);
 
-  int count = 0; // counting time
-  int i = 0; // lines read from file
+  int count = 0;  // counting time
+  int i = 0;      // numbers read from file (execution time to add)
 
-  fseek(p->fp, 40 + (p->position * 4), SEEK_SET);
-  while(1){ 
+  if (p->position == 0) fseek(p->fp, 60 + (p->position * 4), SEEK_SET);  // skip metadata
+
+  while (1) {
     if (fscanf(p->fp, "%i", &i) == EOF) {
       p->state = FINISHED;
       break;
@@ -106,6 +107,15 @@ int execute_process(process *p, int quantum) {
     count += i;
     p->position++;
     p->time_left -= i;
+
+    if (rand() % 50 == 0) {  // 2% chance for block
+      // 90% chance for 4-100 ms, 10% for 100-100000 ms
+      int x = (rand() % 9) > 0 ? (rand() % 9) + 2 : (rand() % 316) + 10;
+      int delay = x * x * 1000;  // exponential delay in us
+      p->unblock_time = p->start_time + delay;
+      p->state = BLOCKED;
+      break;
+    }
 
     if (count > quantum) {
       p->state = PAUSED;
