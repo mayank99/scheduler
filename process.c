@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 typedef enum { READY, PAUSED, BLOCKED, FINISHED, KILLED } STATE;
 
@@ -59,6 +60,8 @@ void generate_process(int n) {
 }
 
 void close_process(process *p) {
+  fseek(p->fp, 0, SEEK_SET);
+  fprintf(p->fp, "%9i", p->priority);
   fseek(p->fp, 10, SEEK_SET);
   fprintf(p->fp, "%9i", p->position);
   fseek(p->fp, 20, SEEK_SET);
@@ -67,6 +70,8 @@ void close_process(process *p) {
   fprintf(p->fp, "%9i", p->time_left);
   fseek(p->fp, 40, SEEK_SET);
   fprintf(p->fp, "%9i", p->start_time);
+  fseek(p->fp, 50, SEEK_SET);
+  fprintf(p->fp, "%9i", p->end_time);
 
   fclose(p->fp);
   free(p);
@@ -89,7 +94,7 @@ void read_process_metadata(process *p) {
   p->time_left = time_left;
 }
 
-// process no. n to be ran for quantum time
+// process p to be ran for quantum time
 int execute_process(process *p, int quantum) {
   // read metadata
   read_process_metadata(p);
@@ -97,16 +102,13 @@ int execute_process(process *p, int quantum) {
   int count = 0;  // counting time
   int i = 0;      // numbers read from file (execution time to add)
 
-  if (p->position == 0) fseek(p->fp, 60 + (p->position * 4), SEEK_SET);  // skip metadata
+  if (p->position != 0) fseek(p->fp, 60 + (p->position * 4), SEEK_SET);  // skip metadata
 
   while (1) {
     if (fscanf(p->fp, "%i", &i) == EOF) {
       p->state = FINISHED;
       break;
     }
-    count += i;
-    p->position++;
-    p->time_left -= i;
 
     if (rand() % 50 == 0) {  // 2% chance for block
       // 90% chance for 4-100 ms, 10% for 100-100000 ms
@@ -117,13 +119,17 @@ int execute_process(process *p, int quantum) {
       break;
     }
 
-    if (count > quantum) {
-      p->state = PAUSED;
-      break;
-    }
+    count += i;
+    p->position++;
+    p->time_left -= i;
 
     if (p->time_left <= 0) {
       p->state = KILLED;
+      break;
+    }
+
+    if (count > quantum) {
+      p->state = PAUSED;
       break;
     }
   }
@@ -136,9 +142,23 @@ int main() {
   // for (int i = 0; i < 1; i++) {
   //   generate_process(i);
   // }
+  srand(time(0));
   generate_process(0);
-  process *p = open_process(0);
-  read_process_metadata(p);
-  execute_process(p, 10000);
-  close_process(p);
+
+  int timer = 0;
+
+  for (int i = 0; i < 10000; i++) {
+    process *p = open_process(0);
+    read_process_metadata(p);
+
+    if (p->state == READY || p->state == PAUSED) {
+      p->start_time = timer;
+      timer += execute_process(p, 10000);
+      p->end_time = timer;
+    } else {
+      break;
+    }
+
+    close_process(p);
+  }
 }
