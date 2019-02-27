@@ -2,3 +2,5 @@ a.out
 *.txt
 *.o
 processes/
+lib/
+*.pyc
