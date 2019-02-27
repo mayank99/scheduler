@@ -6,7 +6,7 @@
       "type": "python",
       "request": "launch",
       // "module": "process.py",
-      "program": "${workspaceFolder}\\process.py",
+      "program": "${file}",
       "console": "externalTerminal"
     },
     {
