@@ -85,67 +85,85 @@ if __name__ == "__main__":
 	clock = 0
 	next_process_at = 0
 
-	processes = [] # processes that are ready to run
-	blocked = [] # processes that have been blocked
+	priority_queues = [[], [], [], []] # queues for the four priorities
+	blocked_queue = [] # processes that have been blocked
 	process_count = 0
 
 	# re: stats
 	runtimes = [[], [], [], []]
 	max_intervals = [[], [], [], []]
 	terminated = [0, 0, 0, 0]
+	success = [0, 0, 0, 0]
+
+	# every priority is given twice the runtime as the next one
+	order = [0, 1, 0, 2, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0] # 0 = highest
+	current_priority = -1
 
 	# run scheduler until all processes are done
-	while processes or blocked or process_count < PROCESS_COUNT:
-		if not processes:
-			if blocked:
-				process = blocked.pop(0)
-				clock = process.unblock_time
+	while any(q for q in priority_queues) \
+	or blocked_queue or process_count < PROCESS_COUNT:
+		# cycle through the priority order
+		current_priority = (current_priority + 1) % len(order)
+
+		# check if a blocked process is ready to run
+		if blocked_queue:
+			process = blocked_queue[0]
+			if clock >= process.unblock_time or not all(q for q in priority_queues):
+				clock = max(clock, process.unblock_time)
+				blocked_queue.pop(0)
 				process.state = State.PAUSED
-				processes.append(process)
-		else:
+				priority_queues[process.priority].append(process)
+
+		# select the queue for current priority
+		processes = priority_queues[order[current_priority]]
+		if processes:
 			process = processes[0]
 			if process.state in [State.PREREADY, State.PAUSED]:
-				priorities = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 3]
-				if process.priority != random.choice(priorities):
-					continue # skip execution for higher priorities
-				else:
-					processes.pop(0) # remove from ready queue
+				# dequeue from ready queue, might enqueue again later
+				processes.pop(0)
 
+				# run the process and advance the clock
 				clock += process.execute(clock)
 
+				# process was killed for taking too long
 				if process.state == State.TERMINATED:
 					terminated[process.priority] += 1
 
+				# I/O block; add to the correct spot in blocked_queue
 				if process.state == State.BLOCKED:
-					blocked.append(process)
-					blocked.sort(key=lambda x: x.unblock_time)
+					blocked_queue.append(process)
+					blocked_queue.sort(key=lambda x: x.unblock_time)
 					
+				# exceeded quantum (10 ms), enqueue in the back
 				if process.state == State.PAUSED:
 					processes.append(process)
 
+				# finished successfully, calculate stats
 				if process.state == State.FINISHED:
 					runtimes[process.priority].append(process.end_time - process.init_time)
 					max_intervals[process.priority].append(process.max_interval)
-					# print(process, process.init_time, process.last_start, process.end_time, process.end_time - process.last_start)
+					success[process.priority] += 1
 
 		# new process every 20-10000 ms
-		if process_count < PROCESS_COUNT and not processes and not blocked:
+		if process_count < PROCESS_COUNT and not processes and not blocked_queue:
 			clock += next_process_at
 		if clock >= next_process_at and process_count < PROCESS_COUNT:
 			p = Process(process_count)
-			# print(p)
 			processes.append(p)
 			process_count += 1
 			next_process_at = clock + random.randint(20, 10000)
 
 	# final stats
 	for i in range(4):
+		if len(runtimes[i]) == 1:
+			runtimes[i].append(runtimes[i][0])
+			max_intervals[i].append(max_intervals[i][0])
 		print(f'Priority {i}:')
 		print('-----------')
 		print(f'Average runtime: {round(statistics.mean(runtimes[i]), 2)} ms')
 		print(f'Standard deviation: {round(statistics.stdev(runtimes[i]), 2)} ms')
 		print(f'Average max interval: {round(statistics.mean(max_intervals[i]), 2)} ms')
 		print(f'Standard deviation: {round(statistics.stdev(max_intervals[i]), 2)} ms')
-		print(f'Terminated: {terminated[i]}')
+		print(f'Processes finished successfully: {success[i]}')
+		print(f'Processes terminated: {terminated[i]}')
 		print()
-
