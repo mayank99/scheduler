@@ -82,13 +82,11 @@ class Process:
 		return time
 
 if __name__ == "__main__":
-	# counters for CPU time/clock
 	clock = 0
 	next_process_at = 0
 
-	# stores for processes
-	processes = []
-	blocked = []
+	processes = [] # processes that are ready to run
+	blocked = [] # processes that have been blocked
 	process_count = 0
 
 	# re: stats
@@ -96,8 +94,8 @@ if __name__ == "__main__":
 	max_intervals = [[], [], [], []]
 	terminated = [0, 0, 0, 0]
 
+	# run scheduler until all processes are done
 	while processes or blocked or process_count < PROCESS_COUNT:
-	
 		if not processes:
 			if blocked:
 				process = blocked.pop(0)
@@ -105,8 +103,14 @@ if __name__ == "__main__":
 				process.state = State.PAUSED
 				processes.append(process)
 		else:
-			process = processes.pop(0)
+			process = processes[0]
 			if process.state in [State.PREREADY, State.PAUSED]:
+				priorities = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 3]
+				if process.priority != random.choice(priorities):
+					continue # skip execution for higher priorities
+				else:
+					processes.pop(0) # remove from ready queue
+
 				clock += process.execute(clock)
 
 				if process.state == State.TERMINATED:
@@ -122,13 +126,11 @@ if __name__ == "__main__":
 				if process.state == State.FINISHED:
 					runtimes[process.priority].append(process.end_time - process.init_time)
 					max_intervals[process.priority].append(process.max_interval)
-
 					# print(process, process.init_time, process.last_start, process.end_time, process.end_time - process.last_start)
 
 		# new process every 20-10000 ms
 		if process_count < PROCESS_COUNT and not processes and not blocked:
 			clock += next_process_at
-
 		if clock >= next_process_at and process_count < PROCESS_COUNT:
 			p = Process(process_count)
 			# print(p)
@@ -136,7 +138,7 @@ if __name__ == "__main__":
 			process_count += 1
 			next_process_at = clock + random.randint(20, 10000)
 
-		# final stats
+	# final stats
 	for i in range(4):
 		print(f'Priority {i}:')
 		print('-----------')
