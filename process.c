@@ -95,12 +95,14 @@ void read_process_metadata(process *p) {
   fscanf(p->fp, "%i", &(p->unblock_time));
 }
 
-void generate_process(int n) {
+// generates a process (given the process number), returns priority
+int generate_process(int n) {
   // open file number n
   process *p = open_process(n, "w+");
 
   // TODO: metadata for process
-  fprintf(p->fp, "%9i\n", random_between(0, 3));              // priority
+  int priority = random_between(0, 3);
+  fprintf(p->fp, "%9i\n", priority);                          // priority
   fprintf(p->fp, "%9i\n", 0);                                 // position
   fprintf(p->fp, "%9i\n", random_between(10, 200));           // memory
   fprintf(p->fp, "%9i\n", random_between(400000, 40000000));  // execution time
@@ -110,13 +112,15 @@ void generate_process(int n) {
   fprintf(p->fp, "%9i\n", 0);                                 // time at which to unblock (if)
 
   // actual instructions
-  for (int i = 0; i < random_between(1000, 100000); i++) {
+  for (int i = 0, max = random_between(1000, 100000); i < max; i++) {
     fprintf(p->fp, "%3i\n", random_between(1, 20));
   }
 
   // fclose(p->fp);
   read_process_metadata(p);
   close_process(p);
+
+  return priority;
 }
 
 // process p to be ran for quantum time
@@ -161,46 +165,47 @@ int execute_process(process *p, int quantum) {
 }
 
 int main() {
-  printf("p_number start_time current_time end_time state\n");
-  printf("-----------------------------------------------\n");
+  printf("p_number start_time current_time end_time priority state\n");
+  printf("--------------------------------------------------------\n");
   srand(time(0));
 
   int timer = 0;  // cpu clock
   int new_process_at = 0;
-  int process_count;
+  int process_count = 0;
 
-  QUEUE *q = newQUEUE();
-  setQUEUEfree(q, freeINTEGER);
-  setQUEUEdisplay(q, displayINTEGER);
+  QUEUE *ready_queue = newQUEUE();
+  QUEUE *blocked_queue = newQUEUE();
+  // setQUEUEfree(ready_queue, freeINTEGER);
+  // setQUEUEdisplay(ready_queue, displayINTEGER);
 
-  // while (1) {
   do {
     // issue new process every 20-10000 ms
     if (timer == 0 || timer > new_process_at && process_count <= 10) {
-      generate_process(process_count++);
-      enqueue(q, newINTEGER(process_count - 1));
-      // if (process_count == 5) break;
+      int priority = generate_process(process_count++);
+      enqueue(ready_queue, newINTEGER(process_count - 1));
       new_process_at = timer + random_between(20, 10000);
     }
 
-    process *p = open_process(getINTEGER(dequeue(q)), "r+");
+    process *p = open_process(getINTEGER(dequeue(ready_queue)), "r+");
     read_process_metadata(p);
 
-    if (p->state == READY || p->state == PAUSED) {
+    if (p->state == READY || p->state == PAUSED
+      ) {
       if (p->process_start_time == -1) p->process_start_time = timer;
       p->last_start_time = timer;
       timer += execute_process(p, 10000);
       p->end_time = timer;
     }
 
-    // if (p->state == FINISHED || p->state == KILLED)
-    if (p->state == FINISHED)
-      printf("%7i %10i %11i %8i %6i\n", p->index, p->process_start_time, p->last_start_time,
-             p->end_time, p->state);
+    if (p->state == FINISHED || p->state == KILLED)
+      printf("%7i %10i %11i %8i %8i %6i\n", p->index, p->process_start_time, p->last_start_time,
+             p->end_time, p->priority, p->state);
 
-    if (p->state == BLOCKED && timer >= p->unblock_time) p->state = PAUSED;
-    if (p->state == PAUSED || p->state == BLOCKED) enqueue(q, newINTEGER(p->index));
+    if (p->state == PAUSED) enqueue(ready_queue, newINTEGER(p->index));
+    if (p->state == BLOCKED) enqueue(blocked_queue, newINTEGER(p->index));
 
     close_process(p);
-  } while (sizeQUEUE(q) > 0);
+    // timer++;
+
+  } while (sizeQUEUE(ready_queue) > 0 || sizeQUEUE(blocked_queue) > 0);
 }
